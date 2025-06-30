@@ -7,4 +7,7 @@ requires-python = ">=3.10"
 dependencies = [
     "basic-pitch>=0.4.0",
     "fastapi[standard]>=0.115.13",
+    "psycopg2-binary>=2.9.10",
+    "redis[hiredis]>=6.2.0",
+    "sqlalchemy>=2.0.41",
 ]

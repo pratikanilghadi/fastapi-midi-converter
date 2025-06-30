@@ -9,6 +9,9 @@ wheels/
 # Virtual environments
 .venv
 
+# Secrets
+.env
+
 # Other files
 TODO.md
 sample.py
