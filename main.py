@@ -1,50 +1,106 @@
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Request, status
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 import logging
-import uuid
-from typing import Dict
+import httpx
 
-from model import AudioToMidiRequest, ProcessingResponse, ProcessingStatus
-from functionality import validate_audio_download_url, validate_midi_upload_url, process_audio_to_midi
+from model import ProcessingRequest, SuccessResponse, ErrorResponse
+from worker import run_audio_to_midi_job
 
-app = FastAPI(title="Audio to Midi Converter", description="Convert audio files to MIDI using the Basic Pitch conversion model")
-logging.basicConfig(level=logging.INFO)
-logger =  logging.getLogger(__name__)
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
-SUPPORTED_AUDIO_FORMATS = {'.wav', '.mp3', '.flac', '.m4a', '.ogg', '.aac'}
+app = FastAPI(
+    title="Audio to Midi Converter",
+    description="A production-ready service to convert audio files to MIDI.",
+    version="1.0.0"
+)
 
-processing_status:Dict = Dict()
+# === Exception Handlers for Consistent Error Responses ===
 
-@app.post("/process/audio-to-midi", response_model=dict)
-async def convert_audio_to_midi(
-    request: AudioToMidiRequest,
-    background_tasks: BackgroundTasks
-):
-    processing_id = str(uuid.uuid4())
-    processing_status[processing_id] = ProcessingStatus(
-        status='initiated',
-        progress=0,
-        message="Audio to MIDI conversion initiated"
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Handles Pydantic model validation errors."""
+    error_messages = '; '.join([f"{err['loc'][-1]}: {err['msg']}" for err in exc.errors()])
+    logger.warning(f"Validation error: {error_messages}")
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content=ErrorResponse(
+            message=f"Invalid request body: {error_messages}",
+            error="VALIDATION_ERROR"
+        ).model_dump(by_alias=True)
     )
 
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """Handles custom thrown HTTPErrors."""
+    logger.error(f"HTTP exception: {exc.detail}")
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=ErrorResponse(
+            message=exc.detail,
+            error="INVALID_INPUT"
+        ).model_dump(by_alias=True)
+    )
+
+# === API Endpoint ===
+
+@app.post(
+    "/process",
+    response_model=SuccessResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    responses={
+        400: {"model": ErrorResponse},
+        422: {"model": ErrorResponse},
+        500: {"model": ErrorResponse}
+    },
+    tags=["Processing"]
+)
+async def create_processing_job(
+    request: ProcessingRequest,
+    background_tasks: BackgroundTasks
+):
+    """
+    Accepts an audio-to-MIDI conversion job, validates input,
+    and queues it for background processing.
+    """
+    logger.info(f"Received job request: {request.job_id}")
+
+    # Quick validation of URLs before accepting the job
+    await validate_url_is_accessible(str(request.input_file_url))
+    
+    # Add the heavy processing to the background
+    background_tasks.add_task(run_audio_to_midi_job, request)
+
+    return SuccessResponse(
+        message="Processing accepted and initiated successfully.",
+        job_id=request.job_id
+    )
+
+async def validate_url_is_accessible(url: str):
+    """
+    Performs a HEAD request to ensure the URL is accessible before starting
+    the background task. This provides faster user feedback.
+    """
     try:
-        await validate_audio_download_url(request.audio_download_url)
-        await validate_midi_upload_url(request.midi_upload_url)
-
-        background_tasks.add_task(
-            process_audio_to_midi,
-            processing_id,
-            request
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            response = await client.head(url)
+            # Raise an error for non-successful status codes (e.g., 403, 404, 500)
+            response.raise_for_status()
+    except httpx.RequestError as e:
+        logger.warning(f"Input URL validation failed for {url}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid input file URL: Could not connect or timed out."
         )
-
-        return {
-            "processing_id": processing_id,
-            "status": "accepted",
-            "message": "Audio to MIDI converson started",
-            "estimated_time": "This may take 1-5 minutes depending on the compute available and length of the audio file"
-        }
-
-    except Exception as e:
-        processing_status[processing_id].status = "failed"
-        processing_status[processing_id].message = f"Failed to initiate: {str(e)}"
-        logger.error(f"Error intiating audio to MIDI conversions: {str(e)}")
-        raise HTTPException(status_code=400, detail=str(e))
+    except httpx.HTTPStatusError as e:
+        logger.warning(f"Input URL validation failed for {url}: Status {e.response.status_code}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid input file URL: Resource returned status {e.response.status_code}."
+        )
+    
+@app.get("/health")
+def get_server_health():
+    return {"Status":"Server is Running"}

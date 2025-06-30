@@ -11,9 +11,16 @@ wheels/
 
 # Secrets
 .env
+.env.example
 
 # Other files
 TODO.md
 sample.py
 
+# the testing folder is not used in production
+testing/
 
+# files no longer used
+functionality.py
+neondb_client.py
+redis_client.py

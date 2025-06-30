@@ -1,20 +1,57 @@
-from pydantic import BaseModel, HttpUrl, Dict, Any
-from typing import Optional
+# model.py
 
-class AudioToMidiRequest(BaseModel):
-    audio_download_url: HttpUrl
-    midi_upload_url: HttpUrl
-    audio_file_name: str
+from pydantic import BaseModel, HttpUrl, Field
+from typing import Optional, Literal
 
-class ProcessingResponse(BaseModel):
-    status: str
+# THIS IS THE CORRECTED FUNCTION
+def to_camel(string: str) -> str:
+    """Converts snake_case_string to camelCaseString."""
+    words = string.split('_')
+    # The first word is lowercased, and all subsequent words are capitalized.
+    return words[0] + ''.join(word.capitalize() for word in words[1:])
+
+class APIBaseModel(BaseModel):
+    class Config:
+        # This configuration now correctly maps between JSON camelCase and Python snake_case
+        alias_generator = to_camel
+        populate_by_name = True # Allows using both snake_case and camelCase for instantiation
+
+# --- API Request Models ---
+# (The rest of this file remains exactly the same)
+
+class RequestMetadata(APIBaseModel):
+    file_type: str
+    file_name: str
+    original_file_id: str
+    file_size: Optional[int] = None
+
+class ProcessingRequest(APIBaseModel):
+    job_id: str
+    user_id: str
+    input_file_url: HttpUrl
+    output_file_url: HttpUrl
+    processing_type: Literal["AUDIO2MIDI"]
+    metadata: RequestMetadata
+
+# --- API Response Models ---
+
+class SuccessResponse(APIBaseModel):
+    success: bool = True
     message: str
-    processing_info: Optional[Dict[str,Any]] = None
+    job_id: str
 
-class ProcessingStatus(BaseModel):
-    status: str
-    progress: str
+class ErrorResponse(APIBaseModel):
+    success: bool = False
     message: str
-    audio_info: Optional[dict] = None
-    midi_info: Optional[dict] = None
-    error_details: Optional[str] = None
+    error: Optional[str] = None
+
+# --- Status Update Model (for calling external API) ---
+
+class StatusUpdateRequest(APIBaseModel):
+    user_id: str
+    file_id: str
+    status: Literal["processing", "completed", "failed"]
+    progress: int = Field(..., ge=0, le=100)
+    message: str
+    size: Optional[int] = None # Final MIDI file size in bytes
+    python_job_id: str
