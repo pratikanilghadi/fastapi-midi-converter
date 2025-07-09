@@ -1,0 +1,52 @@
+#this is the .dockerignore file
+
+# Ignore the .venv, testing, .git, __pycache__, .env, .env.example, .gitignore, redis_client.py, neondb_client.py, funcitionality.py, and .dockerignore files
+.venv
+testing/
+redis_client.py
+neondb_client.py
+funcitionality.py
+
+# Python specific
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+.pytest_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+
+# Editor/IDE specific
+.vscode/
+.idea/
+*.swp
+*.bak
+*.swo
+*~
+
+# Operating System files
+.DS_Store
+.Trash
+
+# Git specific
+.git
+.gitignore
+
+# Logs and temporary files
+*.log
+tmp/
+*.tmp
+
+# Configuration files for local development that should not be in the image
+.env
+.env.*
+
+**/.git
+**/.gitignore
+
+.uv

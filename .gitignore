@@ -18,7 +18,7 @@ TODO.md
 sample.py
 
 # the testing folder is not used in production
-testing/
+
 
 # files no longer used
 functionality.py
